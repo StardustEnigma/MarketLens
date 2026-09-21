@@ -401,3 +401,154 @@ predicted these events in advance.
 
 **Day 7 complete — historical backtesting performed on 2008–2009 and
 validated against the 2020 stress period.**
+
+## Day 8 — Feature Enrichment & SHAP Explainability
+
+### Feature Enrichment
+
+Added two additional features to provide more context around stock-level anomalies:
+
+* `VWAP_Deviation` — measures the deviation of the closing price from the daily VWAP.
+* `Turnover_Ratio` — measures current turnover relative to the stock's 20-day rolling average turnover.
+
+Both features were validated using their distributions and extreme observations. No extreme values were removed because unusual market behavior is relevant to the detection task.
+
+### 3-Feature vs 5-Feature Experiment
+
+The original Isolation Forest used:
+
+```text
+Return
+Volatility_20
+Volume_Ratio
+```
+
+A controlled experiment was performed by adding the two new features:
+
+```text
+Return
+Volatility_20
+Volume_Ratio
+VWAP_Deviation
+Turnover_Ratio
+```
+
+Both models used the same Isolation Forest configuration:
+
+```text
+n_estimators = 200
+contamination = 0.01
+random_state = 42
+```
+
+and the same temporal split:
+
+```text
+Training: 2000–2015
+Testing: 2016–2021
+```
+
+### Results
+
+| Model     | Test Anomalies |
+| --------- | -------------: |
+| 3-Feature |            252 |
+| 5-Feature |            313 |
+
+The additional features significantly changed the behavior of the anomaly detector.
+
+A historical comparison on **2009-05-18** showed:
+
+| Model     | Anomalies | Breadth |
+| --------- | --------: | ------: |
+| 3-Feature |   27 / 42 |   64.3% |
+| 5-Feature |    3 / 42 |    7.1% |
+
+The 3-feature model captured the broad abnormal price movement across the stocks, while the 5-feature model suppressed most of these observations because many of the stocks had relatively low trading activity compared with their 20-day averages.
+
+### Modeling Decision
+
+The experiment showed that `VWAP_Deviation` and `Turnover_Ratio` contain useful information, but directly adding them to the Isolation Forest substantially changes what the detector considers anomalous.
+
+Therefore, the **3-feature model was retained as the primary stock-level anomaly detector**:
+
+```text
+Return
+Volatility_20
+Volume_Ratio
+        ↓
+Isolation Forest
+        ↓
+Stock Anomaly
+```
+
+`VWAP_Deviation` and `Turnover_Ratio` are retained as **contextual signals** for later analysis and the Market Event Engine rather than being used as primary Isolation Forest inputs.
+
+This separates:
+
+* **Detection** — identifying unusual stock behavior.
+* **Context** — describing the trading conditions surrounding the anomaly.
+
+### SHAP Explainability
+
+Added SHAP (`v0.52.0`) to explain why individual observations were classified as anomalous by the Isolation Forest.
+
+Used:
+
+```
+explainer = shap.TreeExplainer(model)
+```
+
+Two representative anomalies were analyzed.
+
+#### SBIN — 2017-10-25
+
+```text
+Return          +27.69%
+Volatility_20     6.39%
+Volume_Ratio     10.38×
+```
+
+SHAP contributions:
+
+```text
+Volume_Ratio     -4.507
+Return           -3.065
+Volatility_20    -2.107
+```
+
+`Volume_Ratio` was the strongest contributor, followed by `Return` and `Volatility_20`.
+
+#### INDUSINDBK — 2020-03-18
+
+```text
+Return          -23.73%
+Volatility_20     6.82%
+Volume_Ratio      5.09×
+```
+
+SHAP contributions:
+
+```text
+Volume_Ratio     -3.531
+Return           -2.883
+Volatility_20    -2.554
+```
+
+Again, `Volume_Ratio` was the strongest contributor.
+
+Both positive and negative stock anomalies were successfully explained using SHAP, and force plots were generated for both examples.
+
+### Day 8 Outcome
+
+* Added `VWAP_Deviation`.
+* Added `Turnover_Ratio`.
+* Validated both new features.
+* Performed a controlled 3-feature vs 5-feature Isolation Forest experiment.
+* Retained the 3-feature model as the primary anomaly detector.
+* Retained VWAP deviation and turnover ratio as contextual signals.
+* Added SHAP explainability using `TreeExplainer`.
+* Explained both an upside anomaly (`SBIN`) and a downside anomaly (`INDUSINDBK`).
+* Generated SHAP force plots for both examples.
+
+**Status: Day 8 complete.**
