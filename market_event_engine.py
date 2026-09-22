@@ -1,6 +1,6 @@
 import pandas as pd
 
-
+from event_explanations import explain_event
 # ---------------------------------------
 # Load data
 # ---------------------------------------
@@ -121,3 +121,23 @@ print(
         ]
     ].tail(10)
 )
+# ---------------------------------------
+# Explain detected event
+# ---------------------------------------
+
+event_date = events.iloc[-1]["Date"]
+
+print("\nSHAP Event Explanation:")
+explain_event(event_date)
+# ---------------------------------------
+# Save market events
+# ---------------------------------------
+
+events.to_csv(
+    "Dataset/market_events.csv",
+    index=False
+)
+
+print("\nSaved market events to:")
+print("Dataset/market_events.csv")
+print(f"\nTotal events generated: {len(events)}")

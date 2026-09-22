@@ -552,3 +552,412 @@ Both positive and negative stock anomalies were successfully explained using SHA
 * Generated SHAP force plots for both examples.
 
 **Status: Day 8 complete.**
+
+# Day 9 — Kafka + Real-Time Replay + FastAPI Preparation 🟡
+
+## Kafka Setup
+
+Docker was selected for running Kafka locally.
+
+Installed/verified:
+
+```text
+Docker: 29.2.1
+Docker Compose: v5.0.2
+kafka-python: 3.0.11
+```
+
+Kafka configuration:
+
+```text
+Broker: localhost:9092
+Topic: market-events
+Partitions: 3
+```
+
+Kafka is used to **replay historical market observations as a live stream** rather than simply acting as a storage layer.
+
+This allows the project to demonstrate a real-time processing architecture using historical NSE data.
+
+---
+
+## Market Streaming Dataset
+
+Created:
+
+```text
+Dataset/market_stream.csv
+```
+
+Contains:
+
+```text
+Date
+CanonicalSymbol
+Return
+Volatility_20
+Volume_Ratio
+```
+
+Final stream dataset:
+
+```text
+189,853 observations
+```
+
+The stream is sorted by:
+
+```text
+Date → CanonicalSymbol
+```
+
+---
+
+## Kafka Producer
+
+Created a configurable producer capable of replaying historical observations:
+
+```bash
+python producer.py --limit 100 --delay 0.01
+```
+
+The producer converts each market observation into a JSON event:
+
+```json
+{
+    "date": "...",
+    "symbol": "...",
+    "return": "...",
+    "volatility_20": "...",
+    "volume_ratio": "..."
+}
+```
+
+Messages are published to:
+
+```text
+market-events
+```
+
+Producer/consumer communication was successfully tested.
+
+---
+
+## Kafka + Isolation Forest
+
+The saved Isolation Forest model:
+
+```text
+models/isolation_forest.joblib
+```
+
+was loaded directly by the Kafka consumer.
+
+The consumer:
+
+1. Receives a market observation.
+2. Extracts the three model features.
+3. Runs `model.predict()`.
+4. Calculates the anomaly score.
+5. Identifies anomalous stocks.
+
+A known test anomaly:
+
+```text
+Date: 2016-05-04
+Symbol: ADANIPORTS
+
+Return:        -0.115711
+Volatility_20:  0.036622
+Volume_Ratio:  4.831902
+```
+
+The Kafka consumer correctly identified it as an anomaly.
+
+---
+
+## Daily Kafka Replay
+
+A controlled replay of:
+
+```text
+2019-11-01 → 2020-03-23
+```
+
+produced:
+
+```text
+3,713 market observations
+79 trading dates
+47 stocks
+```
+
+The consumer reconstructed a daily return matrix:
+
+```text
+79 trading dates × 47 stocks
+```
+
+This was then used to calculate rolling market correlation during the replay.
+
+---
+
+## Streaming Correlation
+
+The Kafka replay successfully reproduced the increase in market-wide correlation during March 2020.
+
+Examples:
+
+```text
+2020-03-09  correlation ≈ 0.3277
+2020-03-11  correlation ≈ 0.3212
+2020-03-12  correlation ≈ 0.5120
+2020-03-13  correlation ≈ 0.5042
+2020-03-16  correlation ≈ 0.5665
+2020-03-17  correlation ≈ 0.5542
+2020-03-18  correlation ≈ 0.5463
+2020-03-19  correlation ≈ 0.5338
+2020-03-20  correlation ≈ 0.5598
+2020-03-23  correlation ≈ 0.6358
+```
+
+The streaming correlation values are not expected to exactly match the offline values because the replay uses a shorter historical window and a smaller stock universe.
+
+This distinction is important:
+
+```text
+Offline model
+→ validated 252-day historical baseline
+
+Streaming demo
+→ shorter replay baseline
+```
+
+The streaming implementation demonstrates the architecture rather than reproducing the offline score exactly.
+
+---
+
+# Day 9 — Market Event Engine ✅
+
+The stock anomaly and correlation outputs were merged into:
+
+```text
+market_event_engine.py
+```
+
+Inputs:
+
+```text
+Dataset/daily_anomalies.csv
+Dataset/streamed_correlation.csv
+```
+
+The engine calculates:
+
+```text
+Anomaly Score
+Correlation Score
+Market Stress Score
+```
+
+Market stress is calculated from:
+
+```text
+50% Anomaly Breadth
++
+50% Correlation Score
+```
+
+The engine then classifies each date into:
+
+```text
+Broad Market Downside Shock
+Broad Market Upside Shock
+Market-Wide Synchronization
+Elevated Market Stress
+Normal
+```
+
+---
+
+## Current Streaming Event Output
+
+The current replay generated:
+
+```text
+15 event-days
+```
+
+Examples:
+
+```text
+2020-03-09
+Market Stress: 44.87
+Event: Market-Wide Synchronization
+
+2020-03-12
+Market Stress: 48.99
+Event: Market-Wide Synchronization
+
+2020-03-13
+Market Stress: 25.06
+Event: Elevated Market Stress
+
+2020-03-23
+Market Stress: 22.68
+Event: Normal
+```
+
+The March 23 streaming classification differs from the validated offline classification because the streaming replay uses a shorter correlation baseline.
+
+The system intentionally does not modify thresholds just to force the streaming output to match the offline result.
+
+---
+
+# SHAP Integration into Event Engine ✅
+
+SHAP was initially implemented as a standalone explanation script:
+
+```text
+event_explanations.py
+```
+
+The explanation logic was then converted into:
+
+```
+def explain_event(event_date):
+```
+
+This removed the hardcoded processing logic from the function.
+
+The Market Event Engine now imports:
+
+```
+from event_explanations import explain_event
+```
+
+and automatically explains the latest event date:
+
+```
+event_date = events.iloc[-1]["Date"]
+
+explain_event(event_date)
+```
+
+---
+
+## Example SHAP Event Explanation
+
+For:
+
+```text
+2020-03-23
+```
+
+the system detected:
+
+```text
+7 anomalies
+```
+
+Stocks:
+
+```text
+AXISBANK
+BAJAJFINSV
+BAJFINANCE
+INDUSINDBK
+ONGC
+VEDL
+ZEEL
+```
+
+Example:
+
+```text
+AXISBANK
+
+Return:        -27.91%
+Volatility:      6.99%
+Volume Ratio:    2.04
+
+SHAP contributions:
+
+Return:         -3.658857
+Volatility:     -3.457821
+Volume Ratio:   -0.936313
+```
+
+For ZEEL:
+
+```text
+Volatility:     -4.536123
+Return:         -3.916783
+Volume Ratio:    0.277961
+```
+
+The SHAP values explain the Isolation Forest's anomaly decision.
+
+They should not be interpreted as the stock going "down because SHAP was negative."
+
+The actual market direction comes from the return.
+
+---
+
+# Final Event Output
+
+The event engine now saves its results to:
+
+```text
+Dataset/market_events.csv
+```
+
+Current generated event records:
+
+```text
+15
+```
+
+The saved file contains the combined event-level information required for the next API/dashboard layer.
+
+---
+
+# Current Project Structure
+
+```text
+MLProject/
+│
+├── market_event_engine.py
+├── event_explanations.py
+├── producer.py
+│
+├── models/
+│   └── isolation_forest.joblib
+│
+├── Dataset/
+│   ├── NIFTY50_all.csv
+│   ├── market_stream.csv
+│   ├── daily_anomalies.csv
+│   ├── streamed_correlation.csv
+│   └── market_events.csv
+│
+└── docker-compose.yml
+```
+
+---
+
+# Current Status
+
+```text
+Day 1  — Data Preparation                  ✅
+Day 2  — Feature Engineering               ✅
+Day 3  — Isolation Forest                  ✅
+Day 4  — Model Validation                  ✅
+Day 5  — Market Correlation                ✅
+Day 6  — Market Event Engine               ✅
+Day 7  — Historical Backtesting            ✅
+Day 8  — SHAP + Feature Enrichment         ✅
+Day 9  — Kafka + Event Replay              ✅
+Day 9  — FastAPI                           ⬜ Next
+Day 10 — Streamlit Dashboard               ⬜
+```
