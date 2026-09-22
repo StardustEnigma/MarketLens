@@ -2,7 +2,6 @@ import json
 import pandas as pd
 from kafka import KafkaProducer
 
-
 producer = KafkaProducer(
     bootstrap_servers="localhost:9092",
     value_serializer=lambda v: json.dumps(v).encode("utf-8")
@@ -10,12 +9,14 @@ producer = KafkaProducer(
 
 df = pd.read_csv("Dataset/market_stream.csv")
 
-day = df[df["Date"] == "2020-03-23"]
+df = df[
+    (df["Date"] >= "2019-11-01") &
+    (df["Date"] <= "2020-03-23")
+]
 
-print(f"Streaming {len(day)} stocks from 2020-03-23")
+print(f"Streaming {len(df)} observations")
 
-for _, row in day.iterrows():
-
+for _, row in df.iterrows():
     event = {
         "date": row["Date"],
         "symbol": row["CanonicalSymbol"],
@@ -29,4 +30,4 @@ for _, row in day.iterrows():
 producer.flush()
 producer.close()
 
-print("Finished streaming test day.")
+print("Finished streaming historical range.")

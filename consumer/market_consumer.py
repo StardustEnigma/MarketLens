@@ -1,62 +1,50 @@
 import json
-import joblib
-import pandas as pd
+from collections import defaultdict, deque
+
 from kafka import KafkaConsumer
 
-
-model = joblib.load("models/isolation_forest.joblib")
 
 consumer = KafkaConsumer(
     "market-events",
     bootstrap_servers="localhost:9092",
     auto_offset_reset="earliest",
-    group_id="model-test-123",
+    group_id="correlation-test-123",
     value_deserializer=lambda x: json.loads(x.decode("utf-8"))
 )
 
 print("Waiting for market events...")
 
-anomalies = 0
-negative_anomalies = 0
-positive_anomalies = 0
-total = 0
+# Store recent returns for each stock
+return_history = defaultdict(lambda: deque(maxlen=60))
+
+current_date = None
+daily_returns = {}
+
 
 for message in consumer:
 
     event = message.value
 
-    features = pd.DataFrame([{
-        "Return": event["return"],
-        "Volatility_20": event["volatility_20"],
-        "Volume_Ratio": event["volume_ratio"]
-    }])
+    date = event["date"]
+    symbol = event["symbol"]
+    stock_return = event["return"]
 
-    prediction = model.predict(features)[0]
-    score = model.decision_function(features)[0]
+    # Detect a new trading day
+    if current_date is None:
+        current_date = date
 
-    total += 1
+    if date != current_date:
 
-    if prediction == -1:
-        if event["return"] < 0:
-            negative_anomalies += 1
-        else:
-            positive_anomalies += 1
-        anomalies += 1
+        # Save the previous day's returns
+        for symbol, stock_return in daily_returns.items():
+            return_history[symbol].append(stock_return)
+
         print(
-            f"ANOMALY | {event['date']} | "
-            f"{event['symbol']} | score={score:.4f}"
+            f"Processed {current_date} | "
+            f"Stocks: {len(daily_returns)}"
         )
 
-    if total == 47:
-        break
+        daily_returns = {}
+        current_date = date
 
-print("\n--- Daily Summary ---")
-print(f"Stocks: {total}")
-print(f"Anomalies: {anomalies}")
-print(f"Anomaly Breadth: {anomalies / total:.2%}")
-print(f"Negative Anomalies: {negative_anomalies}")
-print(f"Positive Anomalies: {positive_anomalies}")
-
-if anomalies > 0:
-    print(f"Negative Ratio: {negative_anomalies / anomalies:.2%}")
-    print(f"Positive Ratio: {positive_anomalies / anomalies:.2%}")
+    daily_returns[symbol] = stock_return
