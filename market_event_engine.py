@@ -50,52 +50,29 @@ events["Market_Stress_Score"] = (
 # ---------------------------------------
 # Classify market event
 # ---------------------------------------
-
 def classify_event(row):
-
     stress = row["Market_Stress_Score"]
     breadth = row["Anomaly_Breadth"]
+    corr_z = row["Correlation_Z"]
+    negative = row["Negative_Anomalies"]
 
-    total_anomalies = (
-        row["Negative_Anomalies"]
-        + row["Positive_Anomalies"]
-    )
+    # Strong broad downside movement
+    if breadth >= 0.10 and negative >= 5:
+        return "Broad Market Downside Shock"
 
-    if total_anomalies == 0:
-        negative_ratio = 0
-        positive_ratio = 0
-    else:
-        negative_ratio = (
-            row["Negative_Anomalies"] / total_anomalies
-        )
-
-        positive_ratio = (
-            row["Positive_Anomalies"] / total_anomalies
-        )
-
-    correlation_score = (
-        min(max(row["Correlation_Z"], 0), 6)
-        / 6
-        * 100
-    )
-
-    if stress >= 40 and breadth >= 0.10:
-
-        if negative_ratio >= 0.75:
-            return "Broad Market Downside Shock"
-
-        elif positive_ratio >= 0.75:
-            return "Broad Market Upside Shock"
-
-    if correlation_score >= 80 and breadth < 0.10:
+    # Strong market-wide synchronization
+    if corr_z >= 4.0:
         return "Market-Wide Synchronization"
 
-    if stress >= 25:
+    # Significant anomaly breadth
+    if breadth >= 0.05:
         return "Elevated Market Stress"
 
+    # High combined stress
+    if stress >= 40:
+        return "High Market Stress"
+
     return "Normal"
-
-
 # ---------------------------------------
 # Apply event engine
 # ---------------------------------------
@@ -104,23 +81,48 @@ events["Event_Type"] = events.apply(
     classify_event,
     axis=1
 )
+def classify_severity(score):
+    if score >= 40:
+        return "CRITICAL"
+    elif score >= 25:
+        return "HIGH"
+    elif score >= 15:
+        return "MEDIUM"
+    else:
+        return "LOW"
 
+def calculate_event_duration(events, threshold=15):
+    durations = []
+    current_duration = 0
+
+    for score in events["Market_Stress_Score"]:
+        if score >= threshold:
+            current_duration += 1
+        else:
+            current_duration = 0
+
+        durations.append(current_duration)
+
+    return durations
+
+events["Severity"] = events["Market_Stress_Score"].apply(
+    classify_severity
+)
+events["Event_Duration"] = calculate_event_duration(events)
 
 # ---------------------------------------
 # Final output
 # ---------------------------------------
 
-print("\nMarket Events:")
 
-print(
-    events[
-        [
-            "Date",
-            "Market_Stress_Score",
-            "Event_Type"
-        ]
-    ].tail(10)
-)
+print("\nMarket Events:")
+print(events[[
+    "Date",
+    "Market_Stress_Score",
+    "Severity",
+    "Event_Type",
+    "Event_Duration"
+]])
 # ---------------------------------------
 # Explain detected event
 # ---------------------------------------

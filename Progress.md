@@ -736,228 +736,343 @@ Streaming demo
 The streaming implementation demonstrates the architecture rather than reproducing the offline score exactly.
 
 ---
+### Day 9 Outcome
 
-# Day 9 — Market Event Engine ✅
+* Built the Kafka-based streaming pipeline for historical market data.
+* Created the `market-events` Kafka topic with 3 partitions.
+* Streamed historical observations through Kafka using `producer/test_day.py`.
+* Verified that the producer successfully streamed **3,713 observations**.
+* Built and tested a raw Kafka consumer to verify that market events were actually being received.
+* Implemented market-wide data collection by grouping incoming Kafka events by trading date and stock symbol.
+* Built the return matrix containing **79 trading dates × 47 stocks**.
+* Implemented rolling market correlation across stocks.
+* Added correlation z-scores to measure how unusual the current market-wide synchronization was compared with the historical correlation baseline.
+* Observed correlation increasing significantly during the March 2020 market stress period:
 
-The stock anomaly and correlation outputs were merged into:
+  * `2020-03-09` → correlation `0.3277`, z-score `5.00`
+  * `2020-03-12` → correlation `0.5120`, z-score `5.62`
+  * `2020-03-23` → correlation `0.6358`, z-score `1.83`
+* Fixed a pandas error caused by using `pd.isclose` instead of the NumPy equivalent.
+* Built the initial `market_event_engine.py`.
+* Combined anomaly breadth with correlation z-score to create a **Market Stress Score**.
+* Added event classification based on the combined market signals.
+* Event categories currently include:
+
+  * `Normal`
+  * `Elevated Market Stress`
+  * `Market-Wide Synchronization`
+  * `Broad Market Downside Shock`
+* Combined the anomaly detector output with the market correlation results.
+* Created `Dataset/market_events.csv` containing the generated market-event dataset.
+* Generated **15 market-event records** from the available event window.
+* Built `event_explanations.py` to explain detected anomalies using SHAP.
+* Added event-level explanations showing:
+
+  * stock return
+  * 20-day volatility
+  * volume ratio
+  * SHAP contribution of each feature
+* Tested the explanation pipeline on the `2020-03-23` event.
+* Detected **7 anomalies** on `2020-03-23`.
+* The strongest anomaly explanations were primarily driven by highly negative returns and elevated volatility.
+* Example:
+
+  * `AXISBANK` → Return `-27.91%`, Volume Ratio `2.04`
+  * `BAJAJFINSV` → Return `-25.86%`, Volume Ratio `1.50`
+  * `BAJFINANCE` → Return `-23.23%`, Volume Ratio `1.43`
+* Successfully integrated the individual-stock anomaly layer with the market-wide correlation layer.
+* The project has now moved from simply detecting unusual stocks to detecting and explaining **market-level events**.
+
+### Current Architecture
+
+The project currently follows this pipeline:
+
+`Historical Market Data`
+→ `Feature Engineering`
+→ `Isolation Forest`
+→ `Stock-Level Anomaly Detection`
+→ `Kafka Producer`
+→ `Kafka Topic`
+→ `Kafka Consumers`
+→ `Market Correlation`
+→ `Correlation Z-Score`
+→ `Market Stress Score`
+→ `Event Classification`
+→ `SHAP Event Explanation`
+→ `market_events.csv`
+
+### Important Components
+
+**1. Stock-Level Anomaly Detector**
+
+Uses the primary 3-feature Isolation Forest model:
+
+* Return
+* Volatility_20
+* Volume_Ratio
+
+Additional features such as `VWAP_Deviation` and `Turnover_Ratio` are retained as contextual signals.
+
+**2. Kafka Streaming Layer**
+
+Kafka is being used to simulate a real-time market-event stream from historical data.
+
+Topic:
+
+`market-events`
+
+Configuration:
+
+* Partitions: `3`
+* Replication factor: `1`
+
+The producer streams historical observations while consumers process the events independently.
+
+**3. Market Correlation Layer**
+
+For every trading date, stock returns are collected into a matrix:
+
+`(trading_dates × stocks)`
+
+Current validated matrix:
+
+`(79, 47)`
+
+Rolling cross-sectional correlation is then calculated to detect periods where stocks begin moving together unusually strongly.
+
+**4. Market Stress Score**
+
+The current score combines:
+
+* Anomaly breadth
+* Correlation z-score
+
+This creates a higher-level signal instead of relying on individual stock anomalies alone.
+
+**5. Event Classification**
+
+The event engine converts numerical signals into interpretable market events.
+
+This is the first layer that attempts to answer:
+
+> "What is happening across the market?"
+
+rather than only:
+
+> "Which stocks look unusual?"
+
+**6. SHAP Explanation Layer**
+
+SHAP is used to explain why individual stocks were classified as anomalies.
+
+For the `2020-03-23` event, the explanations showed that negative returns and high volatility were the major contributors for most detected anomalies.
+
+### Current Output
+
+The system successfully produces:
 
 ```text
-market_event_engine.py
-```
-
-Inputs:
-
-```text
-Dataset/daily_anomalies.csv
-Dataset/streamed_correlation.csv
-```
-
-The engine calculates:
-
-```text
-Anomaly Score
-Correlation Score
+Combined event data
+        ↓
 Market Stress Score
-```
-
-Market stress is calculated from:
-
-```text
-50% Anomaly Breadth
-+
-50% Correlation Score
-```
-
-The engine then classifies each date into:
-
-```text
-Broad Market Downside Shock
-Broad Market Upside Shock
-Market-Wide Synchronization
-Elevated Market Stress
-Normal
-```
-
----
-
-## Current Streaming Event Output
-
-The current replay generated:
-
-```text
-15 event-days
-```
-
-Examples:
-
-```text
-2020-03-09
-Market Stress: 44.87
-Event: Market-Wide Synchronization
-
-2020-03-12
-Market Stress: 48.99
-Event: Market-Wide Synchronization
-
-2020-03-13
-Market Stress: 25.06
-Event: Elevated Market Stress
-
-2020-03-23
-Market Stress: 22.68
-Event: Normal
-```
-
-The March 23 streaming classification differs from the validated offline classification because the streaming replay uses a shorter correlation baseline.
-
-The system intentionally does not modify thresholds just to force the streaming output to match the offline result.
-
----
-
-# SHAP Integration into Event Engine ✅
-
-SHAP was initially implemented as a standalone explanation script:
-
-```text
-event_explanations.py
-```
-
-The explanation logic was then converted into:
-
-```
-def explain_event(event_date):
-```
-
-This removed the hardcoded processing logic from the function.
-
-The Market Event Engine now imports:
-
-```
-from event_explanations import explain_event
-```
-
-and automatically explains the latest event date:
-
-```
-event_date = events.iloc[-1]["Date"]
-
-explain_event(event_date)
-```
-
----
-
-## Example SHAP Event Explanation
-
-For:
-
-```text
-2020-03-23
-```
-
-the system detected:
-
-```text
-7 anomalies
-```
-
-Stocks:
-
-```text
-AXISBANK
-BAJAJFINSV
-BAJFINANCE
-INDUSINDBK
-ONGC
-VEDL
-ZEEL
+        ↓
+Event Type
+        ↓
+Affected Stocks
+        ↓
+SHAP Feature Contributions
 ```
 
 Example:
 
 ```text
-AXISBANK
+Event date: 2020-03-23
+Anomalies found: 7
 
-Return:        -27.91%
-Volatility:      6.99%
-Volume Ratio:    2.04
-
-SHAP contributions:
-
-Return:         -3.658857
-Volatility:     -3.457821
-Volume Ratio:   -0.936313
+AXISBANK | Return=-0.2791 | Volume_Ratio=2.04
+Return         → SHAP contribution: -3.6589
+Volatility_20  → SHAP contribution: -3.4578
+Volume_Ratio   → SHAP contribution: -0.9363
 ```
 
-For ZEEL:
+### Day 9 Status
+
+**Status: Day 9 complete.**
+
+The project now has a complete prototype for:
+
+**streaming → detection → market-wide analysis → event generation → explainability.**
+
+The next phase should focus on making the event engine more robust and closer to a real-time market monitoring system rather than continuing to add isolated features.
+
+### Day 10 — Event Intelligence Layer
+
+**Status: Day 10 complete.**
+
+The market event pipeline was extended from basic event detection into a more structured event intelligence layer.
+
+#### 1. Market Event Dataset
+
+The event engine now generates and saves:
+
+* `Date`
+* `Stocks`
+* `Anomalies`
+* `Anomaly_Breadth`
+* `Negative_Anomalies`
+* `Positive_Anomalies`
+* `Rolling_Correlation`
+* `Correlation_Z`
+* `Market_Stress_Score`
+* `Severity`
+* `Event_Type`
+* `Event_Duration`
+
+The resulting dataset is stored at:
+
+`Dataset/market_events.csv`
+
+A total of **15 market events** were generated from the current historical test window.
+
+#### 2. Market Stress Score
+
+A combined market stress score was created using:
+
+* Anomaly breadth
+* Cross-stock correlation
+* Correlation Z-score
+
+This provides a single numerical representation of how unusual and synchronized the market is on a given trading day.
+
+Example:
+
+`2020-03-09 → Market Stress Score = 44.87`
+
+`2020-03-12 → Market Stress Score = 48.99`
+
+#### 3. Event Severity
+
+Events are now assigned severity levels based on the calculated market stress:
+
+* `LOW`
+* `MEDIUM`
+* `HIGH`
+* `CRITICAL`
+
+Example:
+
+`2020-03-09 → 44.87 → CRITICAL`
+
+`2020-03-03 → 36.82 → HIGH`
+
+This allows the system to distinguish ordinary anomalies from periods of substantially elevated market stress.
+
+#### 4. Event Classification
+
+The engine now classifies market conditions into event types.
+
+Current examples include:
+
+* `Normal`
+* `Market-Wide Synchronization`
+* `Elevated Market Stress`
+* `Broad Market Downside Shock`
+
+The classification combines anomaly breadth, direction of anomalies, correlation behavior, and market stress.
+
+#### 5. Event Duration
+
+An `Event_Duration` field was introduced to track the persistence of detected market conditions.
+
+The current implementation is still a prototype and needs refinement so that duration represents the actual lifetime of a continuous event rather than simply counting consecutive rows.
+
+This will be improved in the next phase.
+
+#### 6. SHAP Event Explainability
+
+The event engine is connected with the existing SHAP explainability layer.
+
+For the `2020-03-23` event, the system identified **7 anomalous stocks**:
+
+* AXISBANK
+* BAJAJFINSV
+* BAJFINANCE
+* INDUSINDBK
+* ONGC
+* VEDL
+* ZEEL
+
+For these anomalies, SHAP explanations were generated using:
+
+* `Return`
+* `Volatility_20`
+* `Volume_Ratio`
+
+The results show that large negative returns and elevated volatility were major contributors to the anomaly scores for the detected stocks.
+
+#### 7. End-to-End Pipeline
+
+The project now follows this architecture:
 
 ```text
-Volatility:     -4.536123
-Return:         -3.916783
-Volume Ratio:    0.277961
+Historical Market Data
+        ↓
+Feature Engineering
+        ↓
+Kafka Producer
+        ↓
+Kafka Topic
+        ↓
+Anomaly Detection
+        ↓
+Cross-Stock Correlation
+        ↓
+Correlation Z-Score
+        ↓
+Market Stress Score
+        ↓
+Event Classification
+        ↓
+Severity Detection
+        ↓
+Event Duration
+        ↓
+SHAP Explainability
+        ↓
+market_events.csv
 ```
 
-The SHAP values explain the Isolation Forest's anomaly decision.
+### Current Project State
 
-They should not be interpreted as the stock going "down because SHAP was negative."
+The project has moved beyond individual stock anomaly detection and now attempts to identify **market-wide events** from multiple signals.
 
-The actual market direction comes from the return.
+The major components currently working are:
 
----
+* Kafka-based market streaming
+* Feature engineering
+* Isolation Forest anomaly detection
+* Cross-stock rolling correlation
+* Correlation Z-score
+* Market stress scoring
+* Market event classification
+* Event severity
+* SHAP-based anomaly explanation
+* Event dataset generation
 
-# Final Event Output
+### Next Phase
 
-The event engine now saves its results to:
+The next phase should focus on making the event engine more robust and closer to a real-time market monitoring system.
 
-```text
-Dataset/market_events.csv
-```
+Planned work:
 
-Current generated event records:
+1. Fix and properly define event duration.
+2. Generate unique event IDs.
+3. Identify affected stocks for each event.
+4. Rank the strongest anomaly contributors.
+5. Add event direction (`UP`, `DOWN`, `MIXED`, `NEUTRAL`).
+6. Generate automatic event summaries.
+7. Calculate an event confidence score.
+8. Produce a final structured event record suitable for a dashboard/API.
+9. Eventually connect the event engine directly to live Kafka streams instead of only historical replay.
 
-```text
-15
-```
-
-The saved file contains the combined event-level information required for the next API/dashboard layer.
-
----
-
-# Current Project Structure
-
-```text
-MLProject/
-│
-├── market_event_engine.py
-├── event_explanations.py
-├── producer.py
-│
-├── models/
-│   └── isolation_forest.joblib
-│
-├── Dataset/
-│   ├── NIFTY50_all.csv
-│   ├── market_stream.csv
-│   ├── daily_anomalies.csv
-│   ├── streamed_correlation.csv
-│   └── market_events.csv
-│
-└── docker-compose.yml
-```
-
----
-
-# Current Status
-
-```text
-Day 1  — Data Preparation                  ✅
-Day 2  — Feature Engineering               ✅
-Day 3  — Isolation Forest                  ✅
-Day 4  — Model Validation                  ✅
-Day 5  — Market Correlation                ✅
-Day 6  — Market Event Engine               ✅
-Day 7  — Historical Backtesting            ✅
-Day 8  — SHAP + Feature Enrichment         ✅
-Day 9  — Kafka + Event Replay              ✅
-Day 9  — FastAPI                           ⬜ Next
-Day 10 — Streamlit Dashboard               ⬜
-```
+**Status: Day 10 complete.**
