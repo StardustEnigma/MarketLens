@@ -47,11 +47,27 @@ features = [
     "Volatility_20",
     "Volume_Ratio"
 ]
+def get_affected_stocks(event_date):
+
+    event_date = pd.Timestamp(event_date)
+
+    day = df[df["Date"] == event_date].copy()
+
+    day = day.dropna(subset=features)
+
+    predictions = model.predict(day[features])
+
+    day["Anomaly"] = predictions
+
+    return day.loc[
+        day["Anomaly"] == -1,
+        "CanonicalSymbol"
+    ].tolist()
+
 
 
 # ---------------------------------------
 # Generate explanations
-# ---------------------------------------
 def explain_event(event_date):
 
     event_date = pd.Timestamp(event_date)
@@ -73,13 +89,20 @@ def explain_event(event_date):
 
     if len(anomalies_today) == 0:
         print("No anomalies found.")
-        return
+
+        return {
+            "Event_Date": str(event_date.date()),
+            "Anomalies": 0,
+            "Explanations": []
+        }
 
     X_anomalies = anomalies_today[features]
 
     shap_values = explainer.shap_values(
         X_anomalies
     )
+
+    explanations = []
 
     for i, (_, row) in enumerate(
         anomalies_today.iterrows()
@@ -113,4 +136,30 @@ def explain_event(event_date):
                 ["Feature", "Value", "SHAP"]
             ].to_string(index=False)
         )
+
+        feature_explanations = []
+
+        for _, feature_row in explanation.iterrows():
+
+            feature_explanations.append({
+                "Feature": feature_row["Feature"],
+                "Value": float(feature_row["Value"]),
+                "SHAP": float(feature_row["SHAP"])
+            })
+
+        explanations.append({
+            "Symbol": row["CanonicalSymbol"],
+            "Return": float(row["Return"]),
+            "Volatility_20": float(row["Volatility_20"]),
+            "Volume_Ratio": float(row["Volume_Ratio"]),
+            "Features": feature_explanations
+        })
+
+    return {
+        "Event_Date": str(event_date.date()),
+        "Anomalies": len(explanations),
+        "Explanations": explanations
+    }
+
+
 # Test
