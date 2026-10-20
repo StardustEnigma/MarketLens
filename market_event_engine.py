@@ -44,6 +44,33 @@ print(events.tail(10))
 
 
 # ---------------------------------------
+# Calculate market-wide breadth
+# ---------------------------------------
+
+stream = pd.read_csv("Dataset/market_stream.csv")
+stream["Date"] = pd.to_datetime(stream["Date"])
+
+breadth_df = stream.groupby("Date").agg(
+    Negative_Breadth=("Return", lambda s: (s < 0).mean()),
+    Severe_Decline_Breadth=("Return", lambda s: (s <= -0.05).mean()),
+    Mean_Return=("Return", "mean")
+).reset_index()
+
+events = events.merge(
+    breadth_df,
+    on="Date",
+    how="left",
+    validate="one_to_one"
+)
+
+print("Breadth metrics added:")
+print(events[[
+    "Date", "Negative_Breadth",
+    "Severe_Decline_Breadth", "Mean_Return"
+]].tail(10))
+
+
+# ---------------------------------------
 # Calculate market stress
 # ---------------------------------------
 
@@ -58,9 +85,27 @@ events["Correlation_Score"] = (
     * 100
 )
 
+events["Breadth_Stress_Score"] = (
+    100
+    * events["Negative_Breadth"]
+    * events["Severe_Decline_Breadth"].clip(0, 1)
+)
+
 events["Market_Stress_Score"] = (
-    0.5 * events["Anomaly_Score"]
-    + 0.5 * events["Correlation_Score"]
+    0.30 * events["Anomaly_Score"]
+    + 0.30 * events["Correlation_Score"]
+    + 0.40 * events["Breadth_Stress_Score"]
+)
+
+print("\nStress Scores Comparison:")
+print(
+    events[[
+        "Date",
+        "Anomaly_Score",
+        "Correlation_Score",
+        "Breadth_Stress_Score",
+        "Market_Stress_Score"
+    ]].to_string(index=False)
 )
 
 
@@ -75,6 +120,18 @@ def classify_event(row):
     negative = row["Negative_Anomalies"]
     positive = row["Positive_Anomalies"]
     stress = row["Market_Stress_Score"]
+
+    negative_breadth = row["Negative_Breadth"]
+    severe_breadth = row["Severe_Decline_Breadth"]
+    mean_return = row["Mean_Return"]
+
+    # Broad market decline, even without individual anomalies
+    if (
+        negative_breadth >= 0.90
+        and severe_breadth >= 0.10
+        and mean_return <= -0.02
+    ):
+        return "Broad Market Downside Shock"
 
     # Broad downside shock
     if (
@@ -115,6 +172,14 @@ def classify_severity(row):
     breadth = row["Anomaly_Breadth"]
     negative = row["Negative_Anomalies"]
     positive = row["Positive_Anomalies"]
+
+    # Market-wide downside override
+    if (
+        row["Negative_Breadth"] >= 0.90
+        and row["Severe_Decline_Breadth"] >= 0.10
+        and row["Mean_Return"] <= -0.02
+    ):
+        return "CRITICAL"
 
     # Broad downside override
     if (

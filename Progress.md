@@ -1076,3 +1076,320 @@ Planned work:
 9. Eventually connect the event engine directly to live Kafka streams instead of only historical replay.
 
 **Status: Day 10 complete.**
+# MarketLens — Progress
+
+## Current Status
+
+### Phase 1 — Historical Market Intelligence ✅ COMPLETE
+
+* Built the **Isolation Forest anomaly detection pipeline** using:
+
+  * `Return`
+  * `Volatility_20`
+  * `Volume_Ratio`
+* Generated daily stock-level anomalies from historical market data.
+* Built market-level aggregation using:
+
+  * Anomaly breadth
+  * Negative/positive anomaly counts
+  * Rolling market correlation
+  * Correlation Z-score
+* Implemented a **Market Stress Score** combining multiple market signals.
+* Added market event classification:
+
+  * Market-Wide Synchronization
+  * Elevated Market Stress
+  * Broad Market Downside Shock
+* Implemented **Option B event consolidation**, where consecutive events of the same type are merged into a single event with:
+
+  * Event ID
+  * Start date
+  * End date
+  * Duration
+  * Peak stress
+  * Peak stress date
+  * Affected stocks
+* Added severity calibration so broad negative market shocks can reach `CRITICAL` severity even when correlation alone is not extreme.
+* Generated consolidated historical events in:
+
+  * `Dataset/market_events.csv`
+
+### Phase 2 — Explainable AI ✅ COMPLETE
+
+* Integrated **SHAP** with the Isolation Forest model.
+* Added event-level explanations based on the event's peak stress date.
+* For each anomalous stock, MarketLens returns:
+
+  * Return
+  * Volatility
+  * Volume Ratio
+  * Individual SHAP contribution for each feature
+* Verified the March 23, 2020 event:
+
+  * 7 anomalous stocks
+  * Extreme negative returns
+  * Return and volatility as the dominant anomaly drivers
+* Added explanation API:
+
+  * `GET /events/{event_id}/explanation`
+
+### Phase 3 — Backend API ✅ COMPLETE
+
+Built the FastAPI backend:
+
+* `GET /`
+* `GET /events`
+* `GET /events/{event_id}`
+* `GET /events/{event_id}/explanation`
+
+The API successfully exposes the historical event dataset and SHAP explanations.
+
+### Phase 4 — Historical Dashboard ✅ COMPLETE
+
+Built the Streamlit dashboard for MarketLens.
+
+The dashboard currently consumes the FastAPI backend and provides a UI for exploring:
+
+* Historical market events
+* Event severity
+* Event type
+* Event duration
+* Peak stress
+* Affected stocks
+* SHAP-based event explanations
+
+The complete historical pipeline is now:
+
+```text
+Historical Market Data
+        ↓
+Feature Engineering
+        ↓
+Isolation Forest
+        ↓
+Stock Anomalies
+        ↓
+Market Aggregation
+        ↓
+Market Stress Score
+        ↓
+Event Classification
+        ↓
+Event Consolidation
+        ↓
+SHAP Explanation
+        ↓
+FastAPI
+        ↓
+Streamlit Dashboard
+```
+
+---
+
+# 🚀 NEXT PHASE — REAL-TIME MARKET SURVEILLANCE
+
+Historical processing is now complete.
+
+The next objective is to convert MarketLens from a **historical analysis system** into a **real-time market surveillance system**.
+
+## Phase 5 — Real-Time Data Pipeline
+
+### Goal
+
+Instead of reading historical CSV data, MarketLens should continuously receive incoming market data and process it as it arrives.
+
+Target architecture:
+
+```text
+Live Market Data
+       ↓
+Kafka Producer
+       ↓
+Kafka Topic
+       ↓
+MarketLens Consumer
+       ↓
+Feature Calculation
+       ↓
+Isolation Forest
+       ↓
+Anomaly Detection
+       ↓
+Market Event Engine
+       ↓
+FastAPI
+       ↓
+Streamlit
+```
+
+### Planned Components
+
+#### 1. Live Market Data Producer
+
+Create a producer that publishes market ticks/updates into Kafka.
+
+Example event:
+
+```json
+{
+    "timestamp": "2026-09-25T10:15:32",
+    "symbol": "RELIANCE",
+    "price": 1425.30,
+    "volume": 182340
+}
+```
+
+#### 2. Kafka Streaming Layer
+
+Use Kafka to decouple market-data ingestion from anomaly processing.
+
+Topic:
+
+```text
+market-data
+```
+
+MarketLens will consume the stream continuously.
+
+#### 3. Real-Time Feature Engine
+
+Calculate features from the incoming stream:
+
+```text
+Return
+Volatility_20
+Volume_Ratio
+```
+
+These must be calculated incrementally instead of loading the entire historical dataset.
+
+#### 4. Real-Time Anomaly Detection
+
+Send newly calculated features into the trained Isolation Forest model.
+
+```text
+Normal → ignore / monitor
+Anomaly → generate surveillance signal
+```
+
+#### 5. Real-Time Event Engine
+
+The existing event consolidation logic will be adapted for streaming data.
+
+MarketLens should maintain the current open event:
+
+```text
+Current Event
+├── Event Type
+├── Start Time
+├── Duration
+├── Peak Stress
+├── Peak Timestamp
+└── Affected Stocks
+```
+
+New incoming signals either:
+
+* Extend the current event
+* Change the event type and close/open events
+* Return to normal and close the event
+
+#### 6. Real-Time Dashboard
+
+Streamlit will eventually display:
+
+* Current market status
+* Active events
+* Live anomaly count
+* Current market stress
+* Severity
+* Affected stocks
+* Event duration
+* Latest anomaly explanations
+
+---
+
+## Day 11 — Market Breadth Integration & Engine Calibration
+
+### Objective
+Resolve the detection gap where broad market selloffs (such as April 7, 2025 and March 16, 2020) fail to trigger stock-level Isolation Forest anomalies despite widespread systemic decline, and calibrate the market event engine without retraining or modifying the core ML model.
+
+### 1. Model Artifact & Feature Verification
+- Verified that `models/isolation_forest.joblib` corresponds to Cell 89 in `Project.ipynb`.
+- Confirmed training occurred on the chronological split (`< 2016-01-01`) using the 3 corporate-action-adjusted features: `Return`, `Volatility_20`, and `Volume_Ratio`.
+- Verified that the `model` object was never reassigned or retrained before serialization in Cell 191 (`joblib.dump`).
+
+### 2. Anomaly Score Diagnostics (April 7, 2025)
+- Evaluated 47 NSE stocks via `realtime_test.py` on April 7, 2025.
+- Discovered that all 47 stocks produced positive anomaly scores (`Anomaly_Score > 0`), with the closest being TATASTEEL at `+0.0397` (Return: -7.77%, Volatility: 0.028, Volume Ratio: 2.89x).
+- **Core Insight:** In isolation, single stocks with ~ -7% returns and ~2.8x volume do not breach the 1% contamination threshold in historical multi-dimensional feature space.
+
+### 3. Market-Wide Breadth Metrics
+Added market-wide breadth calculation in `realtime_test.py`:
+- `Negative_Breadth`: Percentage of stocks with negative daily returns.
+- `Severe_Decline_Breadth`: Percentage of stocks falling $\ge 5\%$.
+- `Mean_Return`: Average return across all active stocks.
+
+#### Empirical Contrast:
+| Metric | April 7, 2025 | March 23, 2020 |
+| :--- | :--- | :--- |
+| **Negative Breadth** | 95.74% | 100.00% |
+| **Severe-Decline Breadth** | 12.77% | 89.36% |
+| **Mean Stock Return** | -3.02% | -12.90% |
+| **IF Anomalies Detected** | 0 | 7 |
+| **Event Identification** | Broad Downside Stress | Historic Systemic Crash |
+
+### 4. 21-Year Historical Breadth Evaluation (`evaluate_breadth.py`)
+Evaluated the candidate rule across all 4,642 historical trading dates (2000-02-01 to 2021-04-30) from `Dataset/market_stream.csv`:
+- **Candidate Rule:** `Negative_Breadth >= 0.90` and `Severe_Decline_Breadth >= 0.10` and `Mean_Return <= -0.02`
+- **Total Flagged Dates:** 98 out of 4,642 trading sessions (Disciplined **2.11%** historical flag rate).
+- **Clustering:** Heavy concentration in historic market shocks:
+  - 2008 Global Financial Crisis: 19 dates
+  - 2020 COVID Crash: 11 dates
+  - 2000–2001 Dot-com Crash: 22 dates
+  - Calm bull-market years (2011, 2015, 2019): Only 1 date per year
+- **Iconic Days Caught:** 2004-05-17 (Black Monday, -10.05%), 2008-10-24 (Lehman trough, -9.65%), 2008-01-21 (-8.94%), 2015-08-24 (-6.50%), and all COVID crash sessions.
+
+### 5. Overlap Analysis (`evaluate_event_overlap.py`)
+Examined the overlap between breadth flags and Isolation Forest anomaly records:
+- **Discovered 7 critical historical dates** (e.g. **2020-03-16** with a -7.05% market plunge and 100% negative breadth) where Isolation Forest flagged **0 individual anomalies**.
+- Established that Market Breadth functions as an essential, complementary macro signal that captures systemic liquidations without inflating individual false positives.
+
+### 6. Event Engine Upgrade (`market_event_engine.py`)
+- **Data Integration:** Grouped `Dataset/market_stream.csv` by date and merged `Negative_Breadth`, `Severe_Decline_Breadth`, and `Mean_Return` into `events` with `validate="one_to_one"`.
+- **Classification Enhancement:** Added direct classification for `Broad Market Downside Shock` when the market breadth threshold is met.
+- **Three-Signal Market Stress Score:**
+  $$\text{Market\_Stress\_Score} = 0.30 \times \text{Anomaly\_Score} + 0.30 \times \text{Correlation\_Score} + 0.40 \times \text{Breadth\_Stress\_Score}$$
+  where $\text{Breadth\_Stress\_Score} = 100 \times \text{Negative\_Breadth} \times \text{Severe\_Decline\_Breadth}$.
+- **Severity Override:** Added market-wide downside override ensuring broad selloffs qualify for `CRITICAL` severity even when single-stock anomalies are 0.
+- **Results Across March 2020:**
+  - **March 16:** Stress score elevated from 22.22 to **43.97** (`CRITICAL`).
+  - **March 23:** Stress score elevated from 22.68 to **49.35** (`CRITICAL`).
+  - **March 12:** Remained peak shock at **65.14** (`CRITICAL`).
+  - **March 3:** Moderated from 36.82 down to **22.09** (`MEDIUM`), preventing false panic on benign synchronization.
+
+### 7. FastAPI Backend Verification (`main.py`)
+- Verified backend launch via `uvicorn main:app --port 8000`.
+- Validated `GET /` (`{"service": "MarketLens", "status": "running"}`).
+- Validated `GET /events` returning all 7 consolidated events from `Dataset/market_events.csv`, with March 16 and March 23 correctly labeled `CRITICAL`.
+- Confirmed interactive documentation operational at `GET /docs`.
+
+---
+
+## Current Milestone
+
+**Historical Market Intelligence:** ✅  
+**Event Detection:** ✅  
+**Event Consolidation:** ✅  
+**Market Breadth Integration:** ✅  
+**Stress Score Calibration (3-Signal):** ✅  
+**SHAP Explainability:** ✅  
+**FastAPI Backend:** ✅  
+**Streamlit Dashboard:** ⏳ NEXT (Integration Verification)  
+**Real-Time Kafka Streaming:** ⏳ PENDING  
+
+### Immediate Next Tasks
+1. Verify the Streamlit dashboard against the updated FastAPI `/events` endpoint and new severity scales.
+2. Verify Kafka producer/consumer historical replay.
+3. Final presentation demo preparation.
+

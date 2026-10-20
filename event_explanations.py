@@ -73,34 +73,14 @@ def explain_event(event_date):
     event_date = pd.Timestamp(event_date)
 
     day = df[df["Date"] == event_date].copy()
-
     day = day.dropna(subset=features)
 
     predictions = model.predict(day[features])
-
     day["Anomaly"] = predictions
 
     anomalies_today = day[
         day["Anomaly"] == -1
     ].copy()
-
-    print(f"Event date: {event_date.date()}")
-    print(f"Anomalies found: {len(anomalies_today)}")
-
-    if len(anomalies_today) == 0:
-        print("No anomalies found.")
-
-        return {
-            "Event_Date": str(event_date.date()),
-            "Anomalies": 0,
-            "Explanations": []
-        }
-
-    X_anomalies = anomalies_today[features]
-
-    shap_values = explainer.shap_values(
-        X_anomalies
-    )
 
     explanations = []
 
@@ -108,12 +88,16 @@ def explain_event(event_date):
         anomalies_today.iterrows()
     ):
 
-        values = shap_values[i]
+        X_anomaly = anomalies_today.iloc[[i]][features]
+
+        shap_values = explainer.shap_values(
+            X_anomaly
+        )[0]
 
         explanation = pd.DataFrame({
             "Feature": features,
-            "SHAP": values,
-            "Value": X_anomalies.iloc[i].values
+            "Value": X_anomaly.iloc[0].values,
+            "SHAP": shap_values
         })
 
         explanation["Abs_SHAP"] = (
@@ -125,41 +109,29 @@ def explain_event(event_date):
             ascending=False
         )
 
-        print(
-            f"\n{row['CanonicalSymbol']} | "
-            f"Return={row['Return']:.4f} | "
-            f"Volume_Ratio={row['Volume_Ratio']:.2f}"
-        )
-
-        print(
-            explanation[
-                ["Feature", "Value", "SHAP"]
-            ].to_string(index=False)
-        )
-
-        feature_explanations = []
-
-        for _, feature_row in explanation.iterrows():
-
-            feature_explanations.append({
-                "Feature": feature_row["Feature"],
-                "Value": float(feature_row["Value"]),
-                "SHAP": float(feature_row["SHAP"])
-            })
-
         explanations.append({
             "Symbol": row["CanonicalSymbol"],
             "Return": float(row["Return"]),
             "Volatility_20": float(row["Volatility_20"]),
             "Volume_Ratio": float(row["Volume_Ratio"]),
-            "Features": feature_explanations
+            "Features": [
+                {
+                    "Feature": feature,
+                    "Value": float(value),
+                    "SHAP": float(shap_value)
+                }
+                for feature, value, shap_value
+                in zip(
+                    explanation["Feature"],
+                    explanation["Value"],
+                    explanation["SHAP"]
+                )
+            ]
         })
 
     return {
-        "Event_Date": str(event_date.date()),
+        "Event_Date": event_date.strftime("%Y-%m-%d"),
         "Anomalies": len(explanations),
         "Explanations": explanations
     }
-
-
 # Test
