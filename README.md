@@ -82,7 +82,7 @@ flowchart TD
         G1 --> API[FastAPI REST API<br/>Port 8000]
         G2 --> API
         H1 --> API
-        API --> Endpoints[Endpoints:<br/>GET /events<br/>GET /analysis/date/{date}<br/>GET /analysis/live<br/>GET /events/{id}/explanation]
+        API --> Endpoints["Endpoints:<br/>GET /events<br/>GET /analysis/date/{date}<br/>GET /analysis/live<br/>GET /events/{id}/explanation"]
     end
 
     subgraph UserInterface [Streamlit Surveillance Dashboard]
@@ -129,15 +129,15 @@ The split is **chronological, not random**. Shuffling time-series data would lea
 
 Three cross-sectional signals computed over the *N* stocks trading on a given day:
 
-$$\text{Negative\_Breadth} = \frac{\sum \mathbb{I}(\text{Return} < 0)}{N}$$
+$$\text{Negative Breadth} = \frac{\sum \mathbb{I}(\text{Return} < 0)}{N}$$
 
-$$\text{Severe\_Decline\_Breadth} = \frac{\sum \mathbb{I}(\text{Return} \le -5\%)}{N}$$
+$$\text{Severe Decline Breadth} = \frac{\sum \mathbb{I}(\text{Return} \le -0.05)}{N}$$
 
-$$\text{Mean\_Return} = \frac{1}{N}\sum \text{Return}$$
+$$\text{Mean Return} = \frac{1}{N}\sum \text{Return}$$
 
 ### 4. Composite Market Stress Score
 
-$$\text{Market\_Stress\_Score} = 0.30 \times \text{Anomaly\_Score} + 0.30 \times \text{Correlation\_Score} + 0.40 \times \text{Breadth\_Stress\_Score}$$
+$$\text{Market Stress Score} = 0.30 \times \text{Anomaly Score} + 0.30 \times \text{Correlation Score} + 0.40 \times \text{Breadth Stress Score}$$
 
 | Component | Formula | Weight |
 |---|---|:---:|
