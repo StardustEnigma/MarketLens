@@ -384,7 +384,7 @@ Add your license here (e.g., MIT).
 
 ## 👤 Author
 
-Built by **Your Name** · [GitHub](https://github.com/your-username) · [LinkedIn](https://linkedin.com/in/your-profile)
+Built by **Atharva Mandle** · [GitHub](https://github.com/StardustEngima) · [LinkedIn](https://www.linkedin.com/in/atharva-mandle-5214312aa/)
 
 ---
 
