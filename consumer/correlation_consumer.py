@@ -5,13 +5,22 @@ from collections import defaultdict
 from kafka import KafkaConsumer
 
 
-consumer = KafkaConsumer(
-    "market-events",
-    bootstrap_servers="localhost:9092",
-    group_id="correlation-engine-004",
-    auto_offset_reset="earliest",
-    value_deserializer=lambda x: json.loads(x.decode("utf-8"))
-)
+import sys
+
+try:
+    consumer = KafkaConsumer(
+        "market-events",
+        bootstrap_servers="localhost:9092",
+        group_id="correlation-engine-004",
+        auto_offset_reset="earliest",
+        consumer_timeout_ms=10000,
+        value_deserializer=lambda x: json.loads(x.decode("utf-8"))
+    )
+except Exception as e:
+    print(f"\n[ERROR] Unable to connect to Kafka broker at localhost:9092.")
+    print("Ensure Kafka is running (e.g. via `docker compose up -d`).")
+    print(f"Details: {e}")
+    sys.exit(1)
 
 
 # ---------------------------------------

@@ -4,13 +4,22 @@ from collections import defaultdict, deque
 from kafka import KafkaConsumer
 
 
-consumer = KafkaConsumer(
-    "market-events",
-    bootstrap_servers="localhost:9092",
-    auto_offset_reset="earliest",
-    group_id="correlation-test-123",
-    value_deserializer=lambda x: json.loads(x.decode("utf-8"))
-)
+import sys
+
+try:
+    consumer = KafkaConsumer(
+        "market-events",
+        bootstrap_servers="localhost:9092",
+        auto_offset_reset="earliest",
+        group_id="correlation-test-123",
+        consumer_timeout_ms=10000,
+        value_deserializer=lambda x: json.loads(x.decode("utf-8"))
+    )
+except Exception as e:
+    print(f"\n[ERROR] Unable to connect to Kafka broker at localhost:9092.")
+    print("Ensure Kafka is running (e.g. via `docker compose up -d`).")
+    print(f"Details: {e}")
+    sys.exit(1)
 
 print("Waiting for market events...")
 
